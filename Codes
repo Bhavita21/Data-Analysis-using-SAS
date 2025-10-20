@@ -1,0 +1,351 @@
+This project utilizes data from the Pregnancy Risk Assessment Monitoring System (PRAMS), a population-based surveillance system.
+For this analysis, indicators of social determinants of health (SDOH)—such as housing insecurity, food insecurity, racial discrimination, and lack of social and emotional support—were classified into risk levels and further stratified with demographics using SAS software.
+
+PRAMS data is available at [the CDC ARF portal ](https://www.cdc.gov/prams/php/data-research/arf-data-access-form.html)
+
+The objective of this project is to identify what SDOH factors affect the TN population and the association of SDOH with maternal and child health indicators.
+
+For this Analysis, SDOH variables were classified into risk levels based on responses. Felt stressed, unable to access balanced
+meals, food insecurity was coded as high risk (Always/Usually), moderate risk (Sometimes), and low risk (Rarely/
+Never). Lack of social and emotional support was inversely coded: high risk (Rarely/Never), moderate risk (Sometimes),
+and low risk (Always/Usually). Each SDOH was rated as “yes” for negative risk factors such as
+housing, food insecurity, perceived racial discrimination, `lack` of social and emotional support, lack of transportation
+services, trouble paying bills, feeling stressed, and barriers to accessing mental health services. The number of negative
+SDOH were counted and then categorized as either “none” or “any”. 
+
+A codebook is provided along with the datasets.
+Codes are as below which was referenced from BRFSS SDOH analysis guide.
+```
+
+`
+*****************************************************************************************************/
+*Libraries;
+LIBNAME PRAMS22 "XXXSet the path to the datasetXX";
+Options nofmterr label;
+
+*Formatting;
+Proc format;
+Value    ny                                           1="No"                                                2="Yes";
+Value    yn                                           1="Yes"                                               2="No";
+Value    nyz                                         0="No"                                                1="Yes";
+Value    insure                                     1="None"                                            2="Private"                        3="Medicaid";
+Value    risk                                          0="Low"                                             1="High";
+Value    urban                                       1="Urban"                                          2="Rural";
+Value    FPL                                           1="0-195%"                                     2="196+%";
+Value    FPLb                                         1="0-185%"                                     2="186+%";
+Value    preterm                                    1="preterm"                                      2="Term";
+Value    lbwt                                         1="Low"                                              2="Normal";
+Value    living                                       1="Steady Place"                               2="Worried or without steady place";
+Value    edu                                          1="< HS"                                             2="HS/GED"                     3=">HS";
+Value    raceb                                        1="NH White"                                    2="NH Black"                   3="Hispanic"; 
+Value    Age                                           1="15-19"                                           2="20-24"                        3="25-29"                          4="30-34"                          5="35+";
+Value    M_SDHISOLT                          1="Always/Usually (High Risk)"                 2="Sometimes"                                 3="Rarely/Never (Low Risk)";
+Value    M_EMTSUPRT                        1="Rarely/Never (High Risk)"          2="Sometimes"                                            3="Always/Usually (Low Risk)";
+Value    cat                                            0="None SDOH"                                1="Any SDOH"                                                                 ;
+Value    freq                                           1="Always"                                         2="Usually"                                               3="Sometimes"                                                                              4="Rarely"         5="Never";
+
+
+Run;    
+
+*Prepare Dataset;
+
+Data temp;
+Set PRAMS22.Prams2022;
+if inqx=1;         *INQ variable sets to repondents who responsed as against the surved population;
+sud_nest=(stratumc*1000)+nest_yr;
+ 
+/*** DEMOGRAPHICS ***/
+
+                                                 /* Age */
+                                
+                                             If MAT_AGE GE 15 and MAT_AGE LE 19                 then age = 1;     *15-19;
+                                              Else if MAT_AGE GE 20 and MAT_AGE LE 24      then age = 2;     *20-24;
+                                                Else if MAT_AGE GE 25 and MAT_AGE LE 29      then age = 3;     *25-29;
+                                                Else if MAT_AGE GE 30 and MAT_AGE LE 34      then age = 4;     *30-34;
+                                                Else if MAT_AGE GE 35                                                                                then age = 5;     *35+;                   
+                                                Else age = .;                 *Missing;
+                                                Format age age.;
+
+                                                /* Race */             
+                                                If hisp_bc in (2) and mat_race in (2) then race3=1;                     *White, Non Hispanic(NH);
+                                                 Else if hisp_bc in (2) and mat_race in (3) then race3=2;                              *Black, NH;
+                                                Else if hisp_bc in (1) then race3=3;                                                                     *Hispanic;
+                                                  Else if hisp_bc in (2) and mat_race in (1,4,5,6,7,8,9,10,11) then race3=.;                 *Other, NH -- Excluded as missing;
+                                                                Else race3=.;   
+                                                                Format race3 raceb.;
+
+                                /* Maternal Education */
+                                If MAT_DEG in (1,2)                                                        then edu=1;       *< HighSchool(HS);
+                                                Else if MAT_DEG in (3)                                  then edu=2;       *HS/GED;
+                                                Else if MAT_DEG in (4,5,6,7,8) then edu=3;       *> HS;
+                                                Format edu edu.;
+
+                                /* Urban/Rural: URBAN */
+                                If URB_RUR in (1,2) then urban=URB_RUR;      
+                                                Else urban=.;
+                                                Format urban urban.;
+                                /* WIC */
+                                If WIC_PREG in (1,2) then WIC=WIC_PREG;
+                                                Else WIC=.;       
+                                                Format WIC ny.;
+
+                                /* Marital Status: MARRIED  */
+                                    Format married marry.;
+
+                 *Create Above/Below 185% FPL Indicator based on the poverty guidelines (WIC Eligibility);
+
+
+                /***********************          INSURANCE RECODING to public/private/none      ***********************/
+
+                ** Before Pregnancy;
+                if (insnone ne 2) then do;
+                    if (inswork8=2 or inshcex=2 or inspar=2 or insmil  =2) then bpinsur  = 2;         *private;
+                    else if (insmed  =2 ) then bpinsur = 3;                                                                     *public/Medicaid;
+                end;
+
+                if insnone=2 then bpinsur=1;                                                           *none;
+                format bpinsur insure.;
+
+                ** During Pregnancy;
+
+                if (pp_none ne 2) then do;
+                    if (pp8_work=2 or pp8_hcex=2 or pp8_par=2 or pp_milit=2) then dpinsur  = 2; *private;
+                    else if (pp_medic  =2 ) then dpinsur = 3;         *public/Medicaid;
+                end;
+
+                if pp_none=2 then dpinsur=1;        *none;
+                format dpinsur insure.;
+
+                ** After Pregnancy;
+                if (hi_none ne 2) then do;
+                    if (hi_work8=2 or hi_hcex=2 or hi_par=2 or hi_milit=2) then ppinsur  = 2;         *private;
+                    else if (hi_medic  =2 ) then ppinsur = 3;                      *public/Medicaid;
+                end;
+                if hi_none=2 then ppinsur=1;                *none;
+                format ppinsur insure.;
+
+** Payment at Delivery;
+If PAY in (2) then payment=1;                    *private;
+Else if PAY in (1) then payment=2;          *Medicaid;
+Else if PAY in (3,4,5,6,8) then payment=3;          *other;
+Else payment=.;
+format payment insure.;
+
+/*****   BIRTH OUTCOMES        *****/
+** Premature Birth;
+
+If GEST_WK_NAPHSIS in (1,2,3) then preterm = 1;         *<37 weeks;
+Else if GEST_WK_NAPHSIS in (4,5) then preterm = 2;    *37+;
+Else preterm=.;
+Format preterm preterm.;
+
+** Low birthweight;
+If gram_naphsis in (125:2375) then lb_wt = 1;                   *Low;
+Else if gram_naphsis in (2625:8125) then lb_wt = 2;      *Normal;
+Else lb_wt = .;
+Format lb_wt lbwt.;
+
+*Gestational Hypertension;
+Format MM_HBP yn.;
+
+ *partner violence;
+                                *ANY violence BEFORE pregnancy;
+                                If PAB6HUS in (1) and PAB_XHUS in (1) then violence=1;                                            *no;
+                                                Else if PAB6HUS in (2) or PAB_XHUS in (2) then violence=2;     *yes;
+                                                Else violence=.;
+                                                Format violence ny.;
+
+                                *ANY violence DURING pregnancy;
+                                If PAD6HUS in (1) and PAD_XHUS in (1) then violencedur=1;                                    *no;
+                                                Else if PAD6HUS in (2) or PAD_XHUS in (2) then violencedur=2;              *yes;
+                                                Else violencedur=.;
+                                                Format violencedur ny.;
+
+/******************** SDOH Module  ********************/
+
+*Unable to pay rent;
+If SDOH_NOT_PAY=2 then SD_BILLS=1;             *yes;
+else If SDOH_NOT_PAY=1 then SD_BILLS=0;    *no;
+else SD_BILLS=.;
+Label SD_BILLS='Unable to pay for mortgage/rent/utility bills';
+Format SD_BILLS nyz.;
+
+*Food Access/Money;
+If SDOH_FOOD_LAST in (1,2) then SD_FOOD=1;                   *Always/Usually (High Risk);
+else If SDOH_FOOD_LAST in (3) then SD_FOOD=2;            *Sometimes;
+else If SDOH_FOOD_LAST in (4,5) then SD_FOOD=3;         *Rarely/Never (Low Risk);
+else SD_FOOD=.;
+Label SD_FOOD='Food not lasting/no money to buy';
+Format SD_FOOD          M_SDHISOLT.;
+
+*Transportation;
+If SDOH_LACK_TRANS=2 then SD_TRANSP=1;                *yes;
+else If SDOH_LACK_TRANS=1 then SD_TRANSP=0;       *no;
+else SD_TRANSP=.;
+Label SD_TRANSP='Lack of reliable transportation';
+Format SD_TRANSP nyz.;
+
+*Emotional Support;
+If SDOH_SOC_EMOT_SPT in (4,5) then SD_Suprt=1;                                     *Rarely/Never (High Risk);
+else If SDOH_SOC_EMOT_SPT in (3) then SD_Suprt=2;                               *Sometimes;  
+else If SDOH_SOC_EMOT_SPT in (1,2) then SD_Suprt=3;           *Always/Usually (Low Risk);
+else SD_Suprt=.;
+Label SD_Suprt='Get social and emotional Support';
+Format SD_Suprt M_EMTSUPRT.;
+
+*Felt Stress;
+
+If SDOH_FELT_STRESS in (1,2) then SD_STRESS=1;                                       *Always/Usually (High Risk);
+else If SDOH_FELT_STRESS in (3) then SD_STRESS=2;                                 *Sometimes;
+else If SDOH_FELT_STRESS in (4,5) then SD_STRESS=3;             *Rarely/Never (Low Risk);
+else SD_STRESS=.;
+Label SD_STRESS='Feel stress within the last 30 days';
+Format SD_STRESS        M_SDHISOLT.;
+
+*Balanced Meals;
+If SDOH_NOT_AFFORD in (1,2) then SD_Nutrition=1;                   *Always/Usually (High Risk);
+else If SDOH_NOT_AFFORD in (3) then SD_Nutrition=2;             *Sometimes;
+else If SDOH_NOT_AFFORD in (4,5) then SD_Nutrition=3;         *Rarely/Never (Low Risk);
+else SD_Nutrition=.;
+Label SD_Nutrition='Could not Afford Balanced Meals';
+Format SD_Nutrition    M_SDHISOLT.;
+
+*Living Situation;
+
+If SDOH_LIVING in (1) then SD_living=1;                             *Steady Place;
+else If SDOH_LIVING in (2,3) then SD_living=2;               *Worried or without steady place;
+else SD_living=.;
+Label SD_living='Living Situation';
+Format SD_living            living.;
+
+**************************************************************
+***********  Recode to 0/1 and count # of SDOH   ************;
+*************************************************************;
+***   Negative (High Risk) Responses = counted as SDOH=1  ***;
+
+*Trouble Paying Bills;
+If SDOH_NOT_PAY in (2) then R_SD_BILLS=1;                   *Yes;
+Else if SDOH_NOT_PAY in (1) then R_SD_BILLS=0;         *No;
+Else R_SD_BILLS=.;
+
+*Transportaion;
+If SDOH_LACK_TRANS in (2) then R_SD_TRANSP=1;                    *Yes;
+Else if SDOH_LACK_TRANS in (1) then R_SD_TRANSP=0;          *No;
+Else R_SD_TRANSP=.;
+
+ 
+*Received Needed Social & Emotional Support;
+If SDOH_SOC_EMOT_SPT in (3,4,5) then R_SD_Suprt=1;           *Sometimes/Rarely/Never;
+Else if SDOH_SOC_EMOT_SPT in (1,2) then R_SD_Suprt=0;      *Always/Usually;
+Else R_SD_Suprt=.;
+
+
+*Food Insecurity: Lasting/No Money to Buy More;
+If SDOH_FOOD_LAST in (1,2,3) then R_SD_FOOD=1;                   *Always/Usually/Sometimes;
+Else if SDOH_FOOD_LAST in (4,5) then R_SD_FOOD=0;             *Rarely/Never;
+Else R_SD_FOOD=.;
+
+*Able to Afford Balanced Meals;
+If SDOH_NOT_AFFORD in (1,2,3) then R_SD_Nutrition=1;                         *Always/Usually/Sometimes;
+Else if SDOH_NOT_AFFORD in (4,5) then R_SD_Nutrition=0;                   *Rarely/Never;
+Else R_SD_Nutrition=.;
+
+*How frequently Felt Stressed;
+If SDOH_FELT_STRESS in (1,2) then R_SD_STRESS=1;                                 *Always/Usually;
+Else if SDOH_FELT_STRESS in (3,4,5) then R_SD_STRESS=0;                    *Sometimes/Rarely/Never;
+Else R_SD_STRESS=.;
+
+*Housing insecurity;
+If SDOH_LIVING in (2,3) then R_SD_Living=1;                                   *Worried about or without steady place to live;
+Else if SDOH_LIVING in (1) then R_SD_Living=0;                             *Steady Place to Live;
+Else R_SD_Living=.;
+
+*Racial Discrimination;
+
+If SDOH_TREAT_LIFE in (1,2,3) then R_SD_race=1; *A/U/S;  
+Else if SDOH_TREAT_LIFE in (4,5) then R_SD_race=0; *R/N;
+Else R_SD_race=.;
+format R_SD_race nyz.;
+
+*Health Care Worker Explain;
+If SDOH_HCW_EXPLAIN in (3,4,5) then R_SD_exp=1; *R/N;
+Else if SDOH_HCW_EXPLAIN in (1,2) then R_SD_exp=0; *A/U/N;
+Else R_SD_exp=.;
+ 
+****************           Count # of SDOH                            ****************;
+
+*Count:               Rent/Utilities    + Transportation             + Food not Lasting         + Stress                               + Social Support               + Balanced Meals                           + Living Situation            +  racism            +             Literacy;
+
+SDOH_SUM1 = R_SD_BILLS      +  R_SD_TRANSP            +  R_SD_FOOD                                 +  R_SD_STRESS  +  R_SD_Suprt                       +  R_SD_Nutrition           +  R_SD_Living                 +  R_SD_race    +             R_SD_exp;
+
+                *Categorize Count;
+                if SDOH_SUM1 in (0)      then SDOH_cat=0;                       *Having NONE of the social needs (score=0);
+                else if SDOH_SUM1 in (1,2,3,4) then SDOH_cat=1;                       *Any social needs;
+                else SDOH_cat=.;
+                Format SDOH_cat         cat.;
+
+/******************** Additional SDOH Module Questions    ********************/
+
+*Mental Health Services;
+If SDOH_NEED_SVC in (1,2) then MHS=SDOH_NEED_SVC;
+Else MHS=.;
+Label MHS='Needed Mental health services ';
+Format MHS ny.;
+
+                *Able to get MHS;
+                If MHS in (2) then do;
+                                If SDOH_GET_SVC in (1,2) then MHS_get=SDOH_GET_SVC;
+                                Else MHS_get=.;
+                End;
+                Label MHS_get='Able to get Mental health services ';
+                Format MHS_get ny.;
+
+ 
+
+                    *Why not get MHS;
+                                                If MHS_get in (1) then do;
+                                                                If SDOH_BARR_AFF in (1,2) then AFF = SDOH_BARR_AFF;
+                                                                If SDOH_BARR_COV in (1,2) then COV = SDOH_BARR_COV;
+                                                                If SDOH_BARR_PAY in (1,2) then SDPAY = SDOH_BARR_PAY;
+                                                                If SDOH_BARR_GET in (1,2) then GET = SDOH_BARR_GET;
+                                                                If SDOH_BARR_CONF in (1,2) then CONF = SDOH_BARR_CONF;
+                                                                If SDOH_BARR_FIND in (1,2) then FIND = SDOH_BARR_FIND;
+                                                                If SDOH_BARR_COMM in (1,2) then COMM = SDOH_BARR_COMM;
+                                                                If SDOH_BARR_MED in (1,2) then MED = SDOH_BARR_MED;
+                                                                If SDOH_BARR_ACC in (1,2) then ACC = SDOH_BARR_ACC;
+                                                                If SDOH_BARR_TIME in (1,2) then TIME = SDOH_BARR_Time;
+                                                                If SDOH_BARR_OTH in (1,2) then OTH = SDOH_BARR_OTH;
+                                                End;
+Run;
+
+ 
+***** Extra Datasteps for Set Up ******;
+
+Proc sort data=temp; by sud_nest; run;
+ 
+*Totals step;
+
+DATA TOTALS_TN_PRAMS;                                                                                                       
+SET temp (KEEP = SUD_NEST TOTCNT);
+BY SUD_NEST;
+IF FIRST.SUD_NEST;
+_TOTAL_= TOTCNT;
+KEEP SUD_NEST _TOTAL_;
+RUN;
+
+/*************************************************************************************************/
+
+/***********************                          ANALYSIS                           *************************************************/
+*SDOH;
+
+Proc surveyfreq data=temp total=TOTALS_TN_PRAMS NOMCAR;
+Weight WTANAL;
+Strata sud_nest;
+
+  *Tables  R_SD_Race SD_Suprt SD_Stress  SD_Living   SD_Bills   SD_Food   SD_Nutrition    SD_Transp R_SD_exp   / cl nostd nototal row ;
+                *Tables  MHS  MHS_Get   SDOH_NEED_SVC*SDOH_GET_SVC*SDOH_BARR_AFF       R_SD_exp   / cl nostd nototal row ; 
+                *Tables AFF       COV      SDPAY  GET       CONF   FIND     COMM MED      ACC      TIME      OTH / cl nostd nototal row ;
+                *Tables SDOH_SUM1 sdoh_cat / cl nostd nototal row ;
+                *Tables (age race3 edu urban WIC FPL bpinsur dpinsur ppinsur payment)*sdoh_cat/ cl nostd row nototal;
+               Tables  (MM_HBP violence violencedur  preterm lb_wt )*SDOH_cat / cl nostd row nototal;
+Run;` ```
